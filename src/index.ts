@@ -21,6 +21,7 @@ export type { HeaderSource } from "./verify.js";
 export {
   UnipileClient,
   UnipileApiError,
+  DEFAULT_WEBHOOK_AUTH_HEADER,
 } from "./client.js";
 export type {
   FetchLike,
@@ -30,4 +31,6 @@ export type {
   StartChatInput,
   ListChatsInput,
   ListMessagesInput,
+  WebhookSource,
+  CreateWebhookInput,
 } from "./client.js";

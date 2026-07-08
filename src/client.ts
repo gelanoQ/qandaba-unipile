@@ -82,6 +82,38 @@ export interface ListMessagesInput {
   cursor?: string;
 }
 
+/**
+ * The custom header Unipile is configured to attach to every delivery. It
+ * carries the shared secret; the receiver checks it with verifyWebhook().
+ * Unipile does not sign deliveries, so this header IS the authentication.
+ * Matches the header verifyWebhook() reads (case-insensitive).
+ */
+export const DEFAULT_WEBHOOK_AUTH_HEADER = "X-Unipile-Auth";
+
+/**
+ * The Unipile webhook "source" (which stream to subscribe to). "messaging"
+ * is the new-message stream this integration ingests; the others exist so
+ * the same method can register the account-status or other streams later.
+ */
+export type WebhookSource =
+  | "messaging"
+  | "account_status"
+  | "users"
+  | "mailing";
+
+export interface CreateWebhookInput {
+  /** Public URL Unipile POSTs deliveries to. */
+  requestUrl: string;
+  /** Which Unipile stream to subscribe to. Defaults to "messaging". */
+  source?: WebhookSource;
+  /** Custom auth header name. Defaults to X-Unipile-Auth. */
+  authHeaderName?: string;
+  /** Value for the auth header: the shared webhook secret. */
+  authHeaderValue: string;
+  /** Optional label; Unipile echoes it back as webhook_name on deliveries. */
+  name?: string;
+}
+
 function normalizeBaseUrl(dsn: string): string {
   const trimmed = dsn.trim().replace(/\/+$/, "");
   const withScheme = /^https?:\/\//i.test(trimmed)
@@ -163,6 +195,41 @@ export class UnipileClient {
     body: Record<string, unknown>,
   ): Promise<unknown> {
     return this.request("POST", "/hosted/accounts/link", { body });
+  }
+
+  /**
+   * Register a webhook so Unipile delivers events to `requestUrl`. Because
+   * Unipile does not sign deliveries, we attach a custom auth header (default
+   * X-Unipile-Auth = the shared secret) that the receiver checks with
+   * verifyWebhook(). One-time setup; keep it idempotent at the call site by
+   * listing first (see listWebhooks). Endpoint: POST /webhooks.
+   */
+  async createWebhook(input: CreateWebhookInput): Promise<unknown> {
+    const body: Record<string, unknown> = {
+      source: input.source ?? "messaging",
+      request_url: input.requestUrl,
+      headers: [
+        {
+          key: input.authHeaderName ?? DEFAULT_WEBHOOK_AUTH_HEADER,
+          value: input.authHeaderValue,
+        },
+      ],
+    };
+    if (input.name !== undefined) body["name"] = input.name;
+    return this.request("POST", "/webhooks", { body });
+  }
+
+  /** List registered webhooks (used to make registration idempotent). */
+  async listWebhooks(): Promise<UnipileList<unknown>> {
+    return this.listRequest("/webhooks", {});
+  }
+
+  /** Delete a webhook by its Unipile id. */
+  async deleteWebhook(webhookId: string): Promise<unknown> {
+    return this.request(
+      "DELETE",
+      `/webhooks/${encodeURIComponent(webhookId)}`,
+    );
   }
 
   /** Reply into an existing chat. */

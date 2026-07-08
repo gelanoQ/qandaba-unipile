@@ -172,6 +172,68 @@ describe("list + pagination", () => {
   });
 });
 
+describe("webhooks", () => {
+  it("creates a messaging webhook with the auth header and request_url", async () => {
+    const { fetch, calls } = stubFetch([{ body: { webhook_id: "wh1" } }]);
+    await client(fetch).createWebhook({
+      requestUrl: "https://os.qandaba.com/api/integrations/unipile/webhook",
+      authHeaderValue: "SECRET",
+      name: "qandaba-os-messaging",
+    });
+    const call = calls[0]!;
+    expect(call.method).toBe("POST");
+    expect(call.url).toBe("https://api8.unipile.com:13443/api/v1/webhooks");
+    expect(call.headers?.["X-API-KEY"]).toBe("KEY123");
+    expect(JSON.parse(call.body!)).toEqual({
+      source: "messaging",
+      request_url:
+        "https://os.qandaba.com/api/integrations/unipile/webhook",
+      name: "qandaba-os-messaging",
+      headers: [{ key: "X-Unipile-Auth", value: "SECRET" }],
+    });
+  });
+
+  it("lets the caller override source and the auth header name", async () => {
+    const { fetch, calls } = stubFetch([{ body: {} }]);
+    await client(fetch).createWebhook({
+      requestUrl: "https://x/y",
+      source: "account_status",
+      authHeaderName: "X-Custom",
+      authHeaderValue: "S",
+    });
+    expect(JSON.parse(calls[0]!.body!)).toEqual({
+      source: "account_status",
+      request_url: "https://x/y",
+      headers: [{ key: "X-Custom", value: "S" }],
+    });
+  });
+
+  it("lists webhooks and coerces a bodyless response to an empty list", async () => {
+    const listed = stubFetch([
+      { body: { items: [{ id: "wh1" }], cursor: null } },
+    ]);
+    const page = await client(listed.fetch).listWebhooks();
+    expect(listed.calls[0]!.method).toBe("GET");
+    expect(listed.calls[0]!.url).toBe(
+      "https://api8.unipile.com:13443/api/v1/webhooks",
+    );
+    expect(page.items).toEqual([{ id: "wh1" }]);
+
+    const empty = stubFetch([{ ok: true, status: 200, body: undefined }]);
+    const emptyPage = await client(empty.fetch).listWebhooks();
+    expect(emptyPage.items).toEqual([]);
+  });
+
+  it("deletes a webhook by id, url-encoding the id", async () => {
+    const { fetch, calls } = stubFetch([{ body: {} }]);
+    await client(fetch).deleteWebhook("wh/1");
+    expect(calls[0]!.method).toBe("DELETE");
+    expect(calls[0]!.url).toBe(
+      "https://api8.unipile.com:13443/api/v1/webhooks/wh%2F1",
+    );
+  });
+});
+
 describe("errors", () => {
   it("throws UnipileApiError with the status on a non-2xx response", async () => {
     const { fetch } = stubFetch([{ ok: false, status: 401, body: { error: "bad key" } }]);
