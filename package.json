@@ -1,0 +1,42 @@
+{
+  "name": "@qandaba/unipile",
+  "version": "0.1.0",
+  "description": "Portable, host-agnostic core for the Unipile messaging integration: LinkedIn webhook normalization, webhook auth, and a thin REST client. Consumed by qandaba-os and bcs-lead-engine as a git dependency.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "src",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "prepare": "npm run build"
+  },
+  "keywords": [
+    "unipile",
+    "linkedin",
+    "webhook",
+    "crm"
+  ],
+  "license": "UNLICENSED",
+  "private": false,
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "typescript": "^5.7.0",
+    "vitest": "^4.1.10"
+  }
+}
