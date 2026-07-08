@@ -1,0 +1,36 @@
+{
+  "account_id": "dfXlh46vQYCsMbVarumWlg",
+  "account_type": "LINKEDIN",
+  "account_info": {
+    "type": "LINKEDIN",
+    "feature": "classic",
+    "user_id": "ACoAAA_connected_user_0001"
+  },
+  "event": "message_received",
+  "chat_id": "R8J-xM9WX7eoHLp6gSVtWQ",
+  "timestamp": "2026-07-08T14:02:11.100Z",
+  "webhook_name": "qandaba-os-messaging",
+  "message_id": "outbound_msg_id_2222",
+  "message": "Great to connect, Philip. Would you be open to a quick chat?",
+  "sender": {
+    "attendee_id": "self_attendee_id",
+    "attendee_name": "Angelo",
+    "attendee_provider_id": "ACoAAA_connected_user_0001",
+    "attendee_profile_url": "https://www.linkedin.com/in/angelo/"
+  },
+  "attendees": [
+    {
+      "attendee_id": "C8zaRZTlVcmfnke_Vai4Gg",
+      "attendee_name": "Philip Ngai",
+      "attendee_provider_id": "ACoAAA_philip_ngai_9999",
+      "attendee_profile_url": "https://www.linkedin.com/in/philipngai/"
+    },
+    {
+      "attendee_id": "self_attendee_id",
+      "attendee_name": "Angelo",
+      "attendee_provider_id": "ACoAAA_connected_user_0001",
+      "attendee_profile_url": "https://www.linkedin.com/in/angelo/"
+    }
+  ],
+  "attachments": []
+}
