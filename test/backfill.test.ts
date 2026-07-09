@@ -1,8 +1,12 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { mapRestAttendee, mapRestMessage } from "../src/backfill.js";
-import type { MessageParty, Provider } from "../src/types.js";
+import {
+  mapRestAttendee,
+  mapRestAttendees,
+  mapRestMessage,
+} from "../src/backfill.js";
+import type { Provider } from "../src/types.js";
 
 function fixture(name: string): unknown {
   const url = new URL(`./fixtures/${name}`, import.meta.url);
@@ -10,17 +14,20 @@ function fixture(name: string): unknown {
 }
 
 const attendeesPage = fixture("rest-attendees.json") as { items: unknown[] };
-const attendees: MessageParty[] = attendeesPage.items.map(mapRestAttendee);
+const { attendees, connectedUserProviderId } = mapRestAttendees(
+  attendeesPage.items,
+);
 const ctx = {
   accountId: "dfXlh46vQYCsMbVarumWlg",
+  chatId: "R8J-xM9WX7eoHLp6gSVtWQ",
   provider: "linkedin" as Provider,
   attendees,
+  connectedUserProviderId,
 };
 
-describe("mapRestAttendee", () => {
+describe("mapRestAttendee / mapRestAttendees", () => {
   it("parses the attendee field names into a MessageParty", () => {
-    const philip = attendees[0]!;
-    expect(philip).toEqual({
+    expect(attendees[0]).toEqual({
       unipileAttendeeId: "C8zaRZTlVcmfnke_Vai4Gg",
       name: "Philip Ngai",
       providerId: "ACoAAA_philip_ngai_9999",
@@ -28,7 +35,20 @@ describe("mapRestAttendee", () => {
     });
   });
 
-  it("returns an all-null party for a non-object", () => {
+  it("identifies the connected user from the is_self attendee flag", () => {
+    expect(connectedUserProviderId).toBe("ACoAAA_connected_user_0001");
+  });
+
+  it("returns null connected user when no attendee is flagged is_self", () => {
+    const r = mapRestAttendees([
+      { attendee_provider_id: "a" },
+      { attendee_provider_id: "b" },
+    ]);
+    expect(r.connectedUserProviderId).toBeNull();
+    expect(r.attendees).toHaveLength(2);
+  });
+
+  it("returns an all-null party for a non-object attendee", () => {
     expect(mapRestAttendee(42)).toEqual({
       unipileAttendeeId: null,
       name: null,
@@ -67,8 +87,8 @@ describe("mapRestMessage", () => {
     if (!result.ok) return;
     const e = result.event;
     expect(e.direction).toBe("outbound");
-    // Outbound: connectedUserProviderId is the sender (us). The host adapter's
-    // pickCounterparty uses it to select the OTHER attendee as the counterparty.
+    // connectedUserProviderId comes from the is_self attendee, so the host
+    // adapter's pickCounterparty selects the OTHER attendee as the counterparty.
     expect(e.connectedUserProviderId).toBe("ACoAAA_connected_user_0001");
     const counterparty = e.attendees.find(
       (a) => a.providerId !== e.connectedUserProviderId,
@@ -79,6 +99,28 @@ describe("mapRestMessage", () => {
     expect(e.externalId).toBe("R8J-xM9WX7eoHLp6gSVtWQ:outbound_msg_id_2222");
   });
 
+  it("falls back to ctx.chatId when the message object omits chat_id", () => {
+    const result = mapRestMessage(
+      { id: "m-nochat", timestamp: "2026-07-08T00:00:00Z", text: "x", is_sender: 0, sender_id: "ACoAAA_philip_ngai_9999" },
+      ctx,
+    );
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.event.chatId).toBe("R8J-xM9WX7eoHLp6gSVtWQ");
+    expect(result.event.externalId).toBe("R8J-xM9WX7eoHLp6gSVtWQ:m-nochat");
+  });
+
+  it("treats a stringified is_sender ('1'/'true') as outbound", () => {
+    for (const flag of ["1", "true", "True"]) {
+      const r = mapRestMessage(
+        { id: `m-${flag}`, chat_id: "c", timestamp: "t2026", is_sender: flag, sender_id: "ACoAAA_connected_user_0001" },
+        ctx,
+      );
+      expect(r.ok).toBe(true);
+      if (r.ok) expect(r.event.direction).toBe("outbound");
+    }
+  });
+
   it("defaults direction to inbound when is_sender is absent", () => {
     const result = mapRestMessage(
       { id: "m1", chat_id: "c1", timestamp: "2026-07-08T00:00:00Z", text: "x" },
@@ -86,6 +128,24 @@ describe("mapRestMessage", () => {
     );
     expect(result.ok).toBe(true);
     if (result.ok) expect(result.event.direction).toBe("inbound");
+  });
+
+  it("uses ctx.connectedUserProviderId for outbound even when sender_id is missing", () => {
+    // Outbound with no sender_id: without the is_self-derived connected id, the
+    // counterparty pick would fall to the first attendee (possibly self).
+    const result = mapRestMessage(
+      { id: "m-nosender", chat_id: "c", timestamp: "t", is_sender: 1 },
+      ctx,
+    );
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.event.connectedUserProviderId).toBe(
+      "ACoAAA_connected_user_0001",
+    );
+    const counterparty = result.event.attendees.find(
+      (a) => a.providerId !== result.event.connectedUserProviderId,
+    );
+    expect(counterparty?.providerId).toBe("ACoAAA_philip_ngai_9999");
   });
 
   it("falls back to a sender party built from sender_id when not in attendees", () => {
@@ -106,11 +166,11 @@ describe("mapRestMessage", () => {
     expect(result.event.sender.linkedinUrl).toBeNull();
   });
 
-  it("rejects a message missing id / chat_id / timestamp", () => {
+  it("rejects a message missing id or timestamp, or a non-object", () => {
     const noId = mapRestMessage({ chat_id: "c", timestamp: "t" }, ctx);
     expect(noId).toEqual({ ok: false, reason: "missing_field", detail: "message_id" });
-    const noChat = mapRestMessage({ id: "m", timestamp: "t" }, ctx);
-    expect(noChat.ok).toBe(false);
+    const noTs = mapRestMessage({ id: "m", chat_id: "c" }, ctx);
+    expect(noTs).toEqual({ ok: false, reason: "missing_field", detail: "timestamp" });
     const notObj = mapRestMessage(null, ctx);
     expect(notObj).toEqual({ ok: false, reason: "not_an_object" });
   });

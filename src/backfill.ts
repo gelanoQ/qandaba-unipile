@@ -17,6 +17,13 @@
 // through the identical host adapter. The externalId stays `chatId:messageId`,
 // which is exactly the webhook key, so a backfilled message and the same
 // message delivered live dedupe against each other.
+//
+// externalId assumption: the webhook `message_id` and the REST message `id`
+// are both documented as "the unique identifier of the message for Unipile"
+// (the REST object's separate `provider_id` is the native LinkedIn id, NOT used
+// here). Dedup between the two paths relies on message_id === id; confirm this
+// once against a real live+REST pair for the same message before trusting it in
+// production (see the live smoke test in the host repo).
 
 import type {
   MessageEvent,
@@ -33,24 +40,77 @@ export function mapRestAttendee(value: unknown): MessageParty {
   return toParty(value);
 }
 
+/**
+ * Unipile flags the connected user's own attendee with is_self (1 / true).
+ * Read defensively across the encodings a JSON serializer might use.
+ */
+function isSelf(value: unknown): boolean {
+  return (
+    value === true ||
+    value === 1 ||
+    value === "1" ||
+    (typeof value === "string" && value.toLowerCase() === "true")
+  );
+}
+
+/**
+ * Map a page of REST chat-attendee objects to parties AND identify the
+ * connected user's own provider id from the is_self flag. Resolving self from
+ * is_self (authoritative, once per chat) rather than from a per-message
+ * sender_id is what keeps an outbound message with a missing sender_id from
+ * mis-attributing the counterparty to the account owner.
+ */
+export function mapRestAttendees(items: unknown[]): {
+  attendees: MessageParty[];
+  connectedUserProviderId: string | null;
+} {
+  const attendees = items.map(mapRestAttendee);
+  let connectedUserProviderId: string | null = null;
+  for (const raw of items) {
+    if (isRecord(raw) && isSelf(raw["is_self"])) {
+      connectedUserProviderId = asString(raw["attendee_provider_id"]);
+      break;
+    }
+  }
+  return { attendees, connectedUserProviderId };
+}
+
 /** Context a REST message needs that the message object itself omits. */
 export interface RestMessageContext {
   /** The connected Unipile account this history belongs to. */
   accountId: string;
+  /**
+   * The chat id, known from the iteration URL. Message objects do not reliably
+   * echo chat_id (it is a path parameter), so it is supplied here and used as a
+   * fallback; without it, a message that omits chat_id would fail to map and
+   * the whole chat would be silently dropped.
+   */
+  chatId: string;
   /** Provider of the chat (from the chat's account_type). */
   provider: Provider;
   /** The chat's attendees, already mapped, so senders resolve to full parties. */
   attendees: MessageParty[];
+  /**
+   * The connected user's own provider id (from mapRestAttendees). Used to pick
+   * the counterparty for outbound messages independent of the per-message
+   * sender_id. Optional; falls back to sender_id-based derivation when absent.
+   */
+  connectedUserProviderId?: string | null;
 }
 
 /**
  * Unipile sends is_sender as a boolean in docs, but REST payloads have been
- * observed to use 1/0. Treat either truthy form as "the connected user sent
- * it". Absent => not-sender => inbound (the safe default for history we are
- * ingesting on the counterparty's behalf).
+ * observed to use 1/0, and a serializer could stringify it. Treat any of those
+ * truthy forms as "the connected user sent it". Absent => not-sender => inbound
+ * (the safe default for history we are ingesting on the counterparty's behalf).
  */
 function isSender(value: unknown): boolean {
-  return value === true || value === 1;
+  return (
+    value === true ||
+    value === 1 ||
+    value === "1" ||
+    (typeof value === "string" && value.toLowerCase() === "true")
+  );
 }
 
 /**
@@ -66,7 +126,9 @@ export function mapRestMessage(
   }
 
   const messageId = asString(item["id"]);
-  const chatId = asString(item["chat_id"]);
+  // chat_id may not be echoed in the message object; fall back to the chat id
+  // the caller is iterating.
+  const chatId = asString(item["chat_id"]) ?? ctx.chatId;
   const timestamp = asString(item["timestamp"]);
   const text = asString(item["text"]) ?? "";
 
@@ -97,25 +159,27 @@ export function mapRestMessage(
     };
 
   // connectedUserProviderId drives the host adapter's counterparty pick for
-  // OUTBOUND messages. Outbound => the connected user is the sender. Inbound =>
-  // the connected user is the attendee that is NOT the sender; for a 1:1 DM
-  // that is unambiguous, so resolve it when there is exactly one such attendee,
-  // otherwise leave it null (the adapter does not use it for inbound anyway).
+  // OUTBOUND messages. Prefer the value resolved from the attendees' is_self
+  // flag (authoritative, independent of this message's sender_id). Fall back to
+  // deriving it from this message: outbound => the sender is the connected
+  // user; inbound => the connected user is the single non-sender attendee.
   const nonSenders = ctx.attendees.filter(
     (a) => a.providerId && a.providerId !== senderId,
   );
-  const connectedUserProviderId = outbound
+  const derivedConnectedId = outbound
     ? senderId
     : nonSenders.length === 1
       ? nonSenders[0]!.providerId
       : null;
+  const connectedUserProviderId =
+    ctx.connectedUserProviderId ?? derivedConnectedId;
 
   const event: MessageEvent = {
     provider: ctx.provider,
     accountId: ctx.accountId,
     connectedUserProviderId,
     direction: outbound ? "outbound" : "inbound",
-    chatId: chatId as string,
+    chatId,
     messageId: messageId as string,
     externalId: `${chatId}:${messageId}`,
     text,

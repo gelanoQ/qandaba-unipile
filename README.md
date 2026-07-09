@@ -110,20 +110,30 @@ the same `chatId:messageId` externalId, so a backfilled message and the same
 message delivered live dedupe against each other.
 
 ```ts
-import { mapRestAttendee, mapRestMessage, UnipileClient } from "@qandaba/unipile";
+import { mapRestAttendees, mapRestMessage, UnipileClient } from "@qandaba/unipile";
 
-const attendees = [];
-for await (const a of client.iterateChatAttendees({ chatId })) {
-  attendees.push(mapRestAttendee(a));
-}
-for await (const raw of client.iterateMessages({ chatId })) {
-  const result = mapRestMessage(raw, { accountId, provider: "linkedin", attendees });
+const raw = [];
+for await (const a of client.iterateChatAttendees({ chatId })) raw.push(a);
+// mapRestAttendees also reads the is_self flag to find the connected user, so
+// the counterparty is picked correctly even when a message omits sender_id.
+const { attendees, connectedUserProviderId } = mapRestAttendees(raw);
+
+for await (const item of client.iterateMessages({ chatId })) {
+  const result = mapRestMessage(item, {
+    accountId,
+    chatId, // message objects may not echo chat_id; supply it from the URL
+    provider: "linkedin",
+    attendees,
+    connectedUserProviderId,
+  });
   if (result.ok) await adapter.persistMessage(result.event);
 }
 ```
 
 `iterateChats({ accountId })` enumerates the account's chats; pair it with
-`iterateChatAttendees` and `iterateMessages` for a full-history backfill.
+`iterateChatAttendees` and `iterateMessages` for a full-history backfill. The
+iterators are un-throttled and guard against a non-advancing cursor; a caller
+that must respect a rate ceiling paces at its own call site.
 
 ## Development
 

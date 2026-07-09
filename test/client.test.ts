@@ -204,6 +204,24 @@ describe("list + pagination", () => {
     expect(new URL(calls[1]!.url).searchParams.get("cursor")).toBe("p2");
   });
 
+  it("stops instead of looping forever when a cursor never advances", async () => {
+    // A misbehaving endpoint echoing the same non-null cursor: the guard must
+    // break, not fetch endlessly.
+    const { fetch, calls } = stubFetch([
+      { body: { items: [{ id: "a" }], cursor: "stuck" } },
+      { body: { items: [{ id: "b" }], cursor: "stuck" } },
+      { body: { items: [{ id: "c" }], cursor: "stuck" } },
+    ]);
+    const seen: unknown[] = [];
+    for await (const m of client(fetch).iterateMessages({ chatId: "c1" })) {
+      seen.push(m);
+    }
+    // Two fetches: page 1 (cursor undefined -> "stuck"), page 2 (cursor "stuck"
+    // -> "stuck" again == previous request cursor -> stop).
+    expect(calls).toHaveLength(2);
+    expect(seen).toEqual([{ id: "a" }, { id: "b" }]);
+  });
+
   it("defaults a bodyless list response to an empty page", async () => {
     const { fetch } = stubFetch([{ ok: true, status: 200, body: undefined }]);
     const page = await client(fetch).listChats({ accountId: "a" });
