@@ -99,6 +99,42 @@ for await (const message of client.iterateMessages({ chatId })) {
 `createHostedAuthLink(body)` wraps `POST /hosted/accounts/link` for the
 connect flow; its exact body params are pinned by the host in S2.
 
+### History backfill (REST)
+
+Live capture normalizes the webhook payload. Backfill instead reads history
+from REST, whose message objects have a different shape (`text` not `message`,
+no `event`/`account_info`, direction carried as `is_sender`, sender given as a
+bare `sender_id`). `mapRestMessage(item, ctx)` maps a REST message plus the
+chat's attendees to the SAME canonical `MessageEvent` as `normalize()`, keyed on
+the same `chatId:messageId` externalId, so a backfilled message and the same
+message delivered live dedupe against each other.
+
+```ts
+import { mapRestAttendees, mapRestMessage, UnipileClient } from "@qandaba/unipile";
+
+const raw = [];
+for await (const a of client.iterateChatAttendees({ chatId })) raw.push(a);
+// mapRestAttendees also reads the is_self flag to find the connected user, so
+// the counterparty is picked correctly even when a message omits sender_id.
+const { attendees, connectedUserProviderId } = mapRestAttendees(raw);
+
+for await (const item of client.iterateMessages({ chatId })) {
+  const result = mapRestMessage(item, {
+    accountId,
+    chatId, // message objects may not echo chat_id; supply it from the URL
+    provider: "linkedin",
+    attendees,
+    connectedUserProviderId,
+  });
+  if (result.ok) await adapter.persistMessage(result.event);
+}
+```
+
+`iterateChats({ accountId })` enumerates the account's chats; pair it with
+`iterateChatAttendees` and `iterateMessages` for a full-history backfill. The
+iterators are un-throttled and guard against a non-advancing cursor; a caller
+that must respect a rate ceiling paces at its own call site.
+
 ## Development
 
 ```bash

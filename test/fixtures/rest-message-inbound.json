@@ -1,0 +1,13 @@
+{
+  "object": "Message",
+  "id": "ykmhfXlRW0W_cqReJYrfBw",
+  "account_id": "dfXlh46vQYCsMbVarumWlg",
+  "chat_id": "R8J-xM9WX7eoHLp6gSVtWQ",
+  "chat_provider_id": "2-abc_chat_provider",
+  "provider_id": "2-msg_provider_inbound",
+  "text": "Hi Angelo, thanks for connecting!",
+  "timestamp": "2026-07-08T13:49:07.965Z",
+  "is_sender": 0,
+  "sender_id": "ACoAAA_philip_ngai_9999",
+  "attachments": []
+}

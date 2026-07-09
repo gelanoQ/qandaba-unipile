@@ -82,6 +82,12 @@ export interface ListMessagesInput {
   cursor?: string;
 }
 
+export interface ListChatAttendeesInput {
+  chatId: string;
+  limit?: number;
+  cursor?: string;
+}
+
 /**
  * The custom header Unipile is configured to attach to every delivery. It
  * carries the shared secret; the receiver checks it with verifyWebhook().
@@ -299,19 +305,66 @@ export class UnipileClient {
     );
   }
 
+  /** One page of a chat's attendees (names + provider ids + profile URLs). */
+  async listChatAttendees(
+    input: ListChatAttendeesInput,
+  ): Promise<UnipileList<unknown>> {
+    return this.listRequest(
+      `/chats/${encodeURIComponent(input.chatId)}/attendees`,
+      { limit: input.limit, cursor: input.cursor },
+    );
+  }
+
   /**
-   * Async-iterate every message in a chat, following the cursor until it is
-   * null. This is the history-backfill primitive S4 builds on. Callers can
-   * `for await (const msg of client.iterateMessages(...))`.
+   * Follow a cursor-paginated list endpoint to exhaustion, yielding each item.
+   * One place so a pagination fix (here: the non-advancing-cursor guard) is
+   * made once, not in three copies.
+   *
+   * Guard: if an endpoint ever returns the SAME non-null cursor twice in a row
+   * (a proxy/bug echoing a fixed cursor), stop instead of looping forever. A
+   * runaway fetch loop would otherwise hang a connect-time backfill.
    */
-  async *iterateMessages(
-    input: ListMessagesInput,
+  private async *paginate<I extends { cursor?: string }>(
+    listFn: (input: I) => Promise<UnipileList<unknown>>,
+    input: I,
   ): AsyncGenerator<unknown, void, void> {
     let cursor = input.cursor;
     do {
-      const page = await this.listMessages({ ...input, cursor });
+      const page = await listFn({ ...input, cursor });
       for (const item of page.items) yield item;
-      cursor = page.cursor ?? undefined;
+      const next = page.cursor ?? undefined;
+      // No progress: the endpoint handed back the same cursor it was given.
+      // Stop rather than re-fetch the identical page forever.
+      if (next !== undefined && next === cursor) return;
+      cursor = next;
     } while (cursor);
+  }
+
+  /**
+   * Async-iterate every message in a chat, following the cursor until it is
+   * null. This is the history-backfill primitive S4 builds on. Callers can
+   * `for await (const msg of client.iterateMessages(...))`. Un-throttled: a
+   * caller that must respect a rate ceiling paces at its own call site.
+   */
+  iterateMessages(
+    input: ListMessagesInput,
+  ): AsyncGenerator<unknown, void, void> {
+    return this.paginate((i) => this.listMessages(i), input);
+  }
+
+  /**
+   * Async-iterate every chat on the account, following the cursor until it is
+   * null. The other half of the backfill primitive: enumerate chats, then
+   * iterateMessages per chat.
+   */
+  iterateChats(input: ListChatsInput): AsyncGenerator<unknown, void, void> {
+    return this.paginate((i) => this.listChats(i), input);
+  }
+
+  /** Async-iterate every attendee of a chat, following the cursor. */
+  iterateChatAttendees(
+    input: ListChatAttendeesInput,
+  ): AsyncGenerator<unknown, void, void> {
+    return this.paginate((i) => this.listChatAttendees(i), input);
   }
 }

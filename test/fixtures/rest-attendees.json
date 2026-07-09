@@ -1,0 +1,22 @@
+{
+  "object": "AttendeeList",
+  "items": [
+    {
+      "object": "ChatAttendee",
+      "attendee_id": "C8zaRZTlVcmfnke_Vai4Gg",
+      "attendee_name": "Philip Ngai",
+      "attendee_provider_id": "ACoAAA_philip_ngai_9999",
+      "attendee_profile_url": "https://www.linkedin.com/in/philipngai/",
+      "is_self": 0
+    },
+    {
+      "object": "ChatAttendee",
+      "attendee_id": "self_attendee_id",
+      "attendee_name": "Angelo",
+      "attendee_provider_id": "ACoAAA_connected_user_0001",
+      "attendee_profile_url": "https://www.linkedin.com/in/angelo/",
+      "is_self": 1
+    }
+  ],
+  "cursor": null
+}
