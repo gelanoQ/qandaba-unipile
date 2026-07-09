@@ -82,6 +82,12 @@ export interface ListMessagesInput {
   cursor?: string;
 }
 
+export interface ListChatAttendeesInput {
+  chatId: string;
+  limit?: number;
+  cursor?: string;
+}
+
 /**
  * The custom header Unipile is configured to attach to every delivery. It
  * carries the shared secret; the receiver checks it with verifyWebhook().
@@ -299,6 +305,16 @@ export class UnipileClient {
     );
   }
 
+  /** One page of a chat's attendees (names + provider ids + profile URLs). */
+  async listChatAttendees(
+    input: ListChatAttendeesInput,
+  ): Promise<UnipileList<unknown>> {
+    return this.listRequest(
+      `/chats/${encodeURIComponent(input.chatId)}/attendees`,
+      { limit: input.limit, cursor: input.cursor },
+    );
+  }
+
   /**
    * Async-iterate every message in a chat, following the cursor until it is
    * null. This is the history-backfill primitive S4 builds on. Callers can
@@ -310,6 +326,34 @@ export class UnipileClient {
     let cursor = input.cursor;
     do {
       const page = await this.listMessages({ ...input, cursor });
+      for (const item of page.items) yield item;
+      cursor = page.cursor ?? undefined;
+    } while (cursor);
+  }
+
+  /**
+   * Async-iterate every chat on the account, following the cursor until it is
+   * null. The other half of the backfill primitive: enumerate chats, then
+   * iterateMessages per chat.
+   */
+  async *iterateChats(
+    input: ListChatsInput,
+  ): AsyncGenerator<unknown, void, void> {
+    let cursor = input.cursor;
+    do {
+      const page = await this.listChats({ ...input, cursor });
+      for (const item of page.items) yield item;
+      cursor = page.cursor ?? undefined;
+    } while (cursor);
+  }
+
+  /** Async-iterate every attendee of a chat, following the cursor. */
+  async *iterateChatAttendees(
+    input: ListChatAttendeesInput,
+  ): AsyncGenerator<unknown, void, void> {
+    let cursor = input.cursor;
+    do {
+      const page = await this.listChatAttendees({ ...input, cursor });
       for (const item of page.items) yield item;
       cursor = page.cursor ?? undefined;
     } while (cursor);

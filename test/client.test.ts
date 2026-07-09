@@ -164,6 +164,46 @@ describe("list + pagination", () => {
     expect(seen).toEqual([]);
   });
 
+  it("iterates chats across pages, threading the cursor", async () => {
+    const { fetch, calls } = stubFetch([
+      { body: { items: [{ id: "chat1" }], cursor: "next" } },
+      { body: { items: [{ id: "chat2" }, { id: "chat3" }], cursor: null } },
+    ]);
+    const seen: unknown[] = [];
+    for await (const c of client(fetch).iterateChats({ accountId: "acc1" })) {
+      seen.push(c);
+    }
+    expect(seen).toEqual([{ id: "chat1" }, { id: "chat2" }, { id: "chat3" }]);
+    expect(calls).toHaveLength(2);
+    expect(new URL(calls[0]!.url).searchParams.get("account_id")).toBe("acc1");
+    expect(new URL(calls[1]!.url).searchParams.get("cursor")).toBe("next");
+  });
+
+  it("lists a page of chat attendees at /chats/{id}/attendees", async () => {
+    const { fetch, calls } = stubFetch([
+      { body: { items: [{ attendee_id: "a1" }], cursor: null } },
+    ]);
+    const page = await client(fetch).listChatAttendees({ chatId: "c/1" });
+    expect(calls[0]!.method).toBe("GET");
+    expect(calls[0]!.url).toBe(
+      "https://api8.unipile.com:13443/api/v1/chats/c%2F1/attendees",
+    );
+    expect(page.items).toEqual([{ attendee_id: "a1" }]);
+  });
+
+  it("iterates chat attendees across pages", async () => {
+    const { fetch, calls } = stubFetch([
+      { body: { items: [{ attendee_id: "a1" }], cursor: "p2" } },
+      { body: { items: [{ attendee_id: "a2" }], cursor: null } },
+    ]);
+    const seen: unknown[] = [];
+    for await (const a of client(fetch).iterateChatAttendees({ chatId: "c1" })) {
+      seen.push(a);
+    }
+    expect(seen).toEqual([{ attendee_id: "a1" }, { attendee_id: "a2" }]);
+    expect(new URL(calls[1]!.url).searchParams.get("cursor")).toBe("p2");
+  });
+
   it("defaults a bodyless list response to an empty page", async () => {
     const { fetch } = stubFetch([{ ok: true, status: 200, body: undefined }]);
     const page = await client(fetch).listChats({ accountId: "a" });

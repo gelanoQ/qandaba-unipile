@@ -1,0 +1,13 @@
+{
+  "object": "Message",
+  "id": "outbound_msg_id_2222",
+  "account_id": "dfXlh46vQYCsMbVarumWlg",
+  "chat_id": "R8J-xM9WX7eoHLp6gSVtWQ",
+  "chat_provider_id": "2-abc_chat_provider",
+  "provider_id": "2-msg_provider_outbound",
+  "text": "Great to connect, Philip. Would you be open to a quick chat?",
+  "timestamp": "2026-07-08T14:02:11.100Z",
+  "is_sender": 1,
+  "sender_id": "ACoAAA_connected_user_0001",
+  "attachments": []
+}

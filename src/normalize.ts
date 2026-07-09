@@ -7,12 +7,8 @@
 // (sender.attendee_provider_id). Equal => the connected account sent it
 // (outbound); otherwise inbound. Confirmed from Unipile's docs.
 
-import type {
-  MessageEvent,
-  MessageParty,
-  NormalizeResult,
-  Provider,
-} from "./types.js";
+import type { MessageEvent, NormalizeResult } from "./types.js";
+import { asString, isRecord, toParty, toProvider } from "./parse.js";
 
 /**
  * The event value Unipile sends for a new message. The webhook we register
@@ -20,52 +16,6 @@ import type {
  * Anything else is reported as unhandled rather than silently coerced.
  */
 const NEW_MESSAGE_EVENT = "message_received";
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function asString(value: unknown): string | null {
-  return typeof value === "string" ? value : null;
-}
-
-function toProvider(accountType: unknown): Provider {
-  if (typeof accountType !== "string") return "unknown";
-  switch (accountType.toUpperCase()) {
-    case "LINKEDIN":
-      return "linkedin";
-    case "WHATSAPP":
-      return "whatsapp";
-    case "INSTAGRAM":
-      return "instagram";
-    case "TELEGRAM":
-      return "telegram";
-    case "MESSENGER":
-      return "messenger";
-    case "X":
-    case "TWITTER":
-      return "x";
-    default:
-      return "unknown";
-  }
-}
-
-function toParty(value: unknown): MessageParty {
-  if (!isRecord(value)) {
-    return {
-      unipileAttendeeId: null,
-      name: null,
-      providerId: null,
-      linkedinUrl: null,
-    };
-  }
-  return {
-    unipileAttendeeId: asString(value["attendee_id"]),
-    name: asString(value["attendee_name"]),
-    providerId: asString(value["attendee_provider_id"]),
-    linkedinUrl: asString(value["attendee_profile_url"]),
-  };
-}
 
 export function normalize(payload: unknown): NormalizeResult {
   if (!isRecord(payload)) {
