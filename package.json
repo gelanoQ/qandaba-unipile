@@ -1,6 +1,6 @@
 {
   "name": "@qandaba/unipile",
-  "version": "0.3.2",
+  "version": "0.4.0",
   "description": "Portable, host-agnostic core for the Unipile messaging integration: LinkedIn webhook normalization, webhook auth, and a thin REST client. Consumed by qandaba-os and bcs-lead-engine as a git dependency.",
   "type": "module",
   "main": "./dist/index.js",

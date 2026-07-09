@@ -31,7 +31,7 @@ describe("mapRestAttendee / mapRestAttendees", () => {
       unipileAttendeeId: "C8zaRZTlVcmfnke_Vai4Gg",
       name: "Philip Ngai",
       providerId: "ACoAAA_philip_ngai_9999",
-      linkedinUrl: "https://www.linkedin.com/in/philipngai/",
+      linkedinUrl: "https://www.linkedin.com/in/ACoAAA_philip_ngai_9999",
     });
   });
 
@@ -96,7 +96,7 @@ describe("mapRestMessage", () => {
     expect(e.provider).toBe("linkedin");
     // Inbound: the sender is the counterparty, resolved from attendees by
     // sender_id so the profile URL is carried (contact resolution needs it).
-    expect(e.sender.linkedinUrl).toBe("https://www.linkedin.com/in/philipngai/");
+    expect(e.sender.linkedinUrl).toBe("https://www.linkedin.com/in/ACoAAA_philip_ngai_9999");
     expect(e.sender.providerId).toBe("ACoAAA_philip_ngai_9999");
     expect(e.attendees).toHaveLength(2);
   });
@@ -114,7 +114,7 @@ describe("mapRestMessage", () => {
       (a) => a.providerId !== e.connectedUserProviderId,
     );
     expect(counterparty?.linkedinUrl).toBe(
-      "https://www.linkedin.com/in/philipngai/",
+      "https://www.linkedin.com/in/ACoAAA_philip_ngai_9999",
     );
     expect(e.externalId).toBe("R8J-xM9WX7eoHLp6gSVtWQ:outbound_msg_id_2222");
   });
@@ -187,7 +187,7 @@ describe("mapRestMessage", () => {
     if (!result.ok) return;
     expect(result.event.sender.name).toBe("Philip Ngai");
     expect(result.event.sender.linkedinUrl).toBe(
-      "https://www.linkedin.com/in/philipngai/",
+      "https://www.linkedin.com/in/ACoAAA_philip_ngai_9999",
     );
   });
 

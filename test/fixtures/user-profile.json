@@ -1,0 +1,12 @@
+{
+  "object": "UserProfile",
+  "provider": "LINKEDIN",
+  "provider_id": "ACoAAADWdH8B_x",
+  "public_identifier": "philipngai",
+  "member_urn": "urn:li:member:14054527",
+  "first_name": "Philip",
+  "last_name": "Ngai",
+  "headline": "Founder & CEO",
+  "profile_picture_url": "https://media.licdn.com/dms/image/philip.jpg",
+  "network_distance": "DISTANCE_1"
+}

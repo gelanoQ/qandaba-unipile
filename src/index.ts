@@ -18,6 +18,9 @@ export { normalize } from "./normalize.js";
 export { mapRestMessage, mapRestAttendee, mapRestAttendees } from "./backfill.js";
 export type { RestMessageContext } from "./backfill.js";
 
+export { mapUserProfile } from "./profile.js";
+export type { UserProfile } from "./profile.js";
+
 export { verifyWebhook, UNIPILE_AUTH_HEADER } from "./verify.js";
 export type { HeaderSource } from "./verify.js";
 
@@ -35,6 +38,7 @@ export type {
   ListChatsInput,
   ListMessagesInput,
   ListChatAttendeesInput,
+  RetrieveProfileInput,
   WebhookSource,
   CreateWebhookInput,
 } from "./client.js";

@@ -88,6 +88,16 @@ export interface ListChatAttendeesInput {
   cursor?: string;
 }
 
+export interface RetrieveProfileInput {
+  /**
+   * The profile to retrieve. For LinkedIn this is the member's provider_id
+   * (the `ACoAA...` value carried on every attendee) or its public_identifier.
+   */
+  identifier: string;
+  /** The connected account whose session performs the lookup. */
+  accountId: string;
+}
+
 /**
  * The custom header Unipile is configured to attach to every delivery. It
  * carries the shared secret; the receiver checks it with verifyWebhook().
@@ -312,6 +322,22 @@ export class UnipileClient {
     return this.listRequest(
       `/chats/${encodeURIComponent(input.chatId)}/attendees`,
       { limit: input.limit, cursor: input.cursor },
+    );
+  }
+
+  /**
+   * Retrieve a single profile by identifier. For LinkedIn this resolves an
+   * opaque provider_id to the member's public_identifier (the vanity slug),
+   * which is what a host stores as a contact's linkedin_url. Returns the raw
+   * response object; map it with mapUserProfile(). Endpoint:
+   * GET /users/{identifier}?account_id=... The account_id query is required:
+   * the lookup runs through that connected account's LinkedIn session.
+   */
+  async retrieveProfile(input: RetrieveProfileInput): Promise<unknown> {
+    return this.request(
+      "GET",
+      `/users/${encodeURIComponent(input.identifier)}`,
+      { query: { account_id: input.accountId } },
     );
   }
 
