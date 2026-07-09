@@ -35,6 +35,26 @@ describe("mapRestAttendee / mapRestAttendees", () => {
     });
   });
 
+  it("reads the UNPREFIXED REST fields (id/name/provider_id/profile_url), not attendee_*", () => {
+    // Regression: the REST ChatAttendee object uses unprefixed field names. The
+    // original mapper read attendee_* (the webhook shape), so every REST
+    // attendee parsed to all-null and messages showed the bare provider id
+    // instead of the person's name.
+    const p = mapRestAttendee({
+      id: "att-1",
+      name: "Mohammad Alim",
+      provider_id: "ACoAAADWdH8B_x",
+      profile_url: "https://www.linkedin.com/in/ACoAAADWdH8B_x",
+      is_self: 0,
+    });
+    expect(p).toEqual({
+      unipileAttendeeId: "att-1",
+      name: "Mohammad Alim",
+      providerId: "ACoAAADWdH8B_x",
+      linkedinUrl: "https://www.linkedin.com/in/ACoAAADWdH8B_x",
+    });
+  });
+
   it("identifies the connected user from the is_self attendee flag", () => {
     expect(connectedUserProviderId).toBe("ACoAAA_connected_user_0001");
   });
@@ -148,7 +168,10 @@ describe("mapRestMessage", () => {
     expect(counterparty?.providerId).toBe("ACoAAA_philip_ngai_9999");
   });
 
-  it("falls back to a sender party built from sender_id when not in attendees", () => {
+  it("resolves an inbound 1:1 counterparty via the lone non-self attendee when sender_id does not match", () => {
+    // sender_id disagrees with provider_id (or is a different id variant): on a
+    // 1:1 DM the counterparty is unambiguous, so the name + URL still come
+    // through rather than degrading to a bare id.
     const result = mapRestMessage(
       {
         id: "m2",
@@ -156,9 +179,36 @@ describe("mapRestMessage", () => {
         timestamp: "2026-07-08T00:00:00Z",
         text: "hey",
         is_sender: 0,
-        sender_id: "ACoAAA_stranger",
+        sender_id: "ACoAAA_mismatch",
       },
       ctx,
+    );
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.event.sender.name).toBe("Philip Ngai");
+    expect(result.event.sender.linkedinUrl).toBe(
+      "https://www.linkedin.com/in/philipngai/",
+    );
+  });
+
+  it("falls back to an id-only sender when it cannot disambiguate (group chat, no match)", () => {
+    // Two non-self attendees and an unmatched sender_id: we cannot tell who sent
+    // it, so build an id-only party (routes to the unmatched inbox).
+    const groupCtx = {
+      ...ctx,
+      attendees: [
+        ...ctx.attendees,
+        {
+          unipileAttendeeId: "att-3",
+          name: "Dana",
+          providerId: "ACoAAA_dana",
+          linkedinUrl: "https://www.linkedin.com/in/dana/",
+        },
+      ],
+    };
+    const result = mapRestMessage(
+      { id: "m3", chat_id: "c3", timestamp: "t", is_sender: 0, sender_id: "ACoAAA_stranger" },
+      groupCtx,
     );
     expect(result.ok).toBe(true);
     if (!result.ok) return;

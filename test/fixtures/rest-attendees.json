@@ -1,21 +1,29 @@
 {
-  "object": "AttendeeList",
+  "object": "ChatAttendeeList",
   "items": [
     {
       "object": "ChatAttendee",
-      "attendee_id": "C8zaRZTlVcmfnke_Vai4Gg",
-      "attendee_name": "Philip Ngai",
-      "attendee_provider_id": "ACoAAA_philip_ngai_9999",
-      "attendee_profile_url": "https://www.linkedin.com/in/philipngai/",
-      "is_self": 0
+      "account_id": "dfXlh46vQYCsMbVarumWlg",
+      "id": "C8zaRZTlVcmfnke_Vai4Gg",
+      "is_self": 0,
+      "name": "Philip Ngai",
+      "provider_id": "ACoAAA_philip_ngai_9999",
+      "picture_url": "https://media.licdn.com/dms/image/philip.jpg",
+      "specifics": {
+        "provider": "LINKEDIN",
+        "member_urn": "urn:li:member:14054527",
+        "network_distance": "DISTANCE_1"
+      },
+      "profile_url": "https://www.linkedin.com/in/philipngai/"
     },
     {
       "object": "ChatAttendee",
-      "attendee_id": "self_attendee_id",
-      "attendee_name": "Angelo",
-      "attendee_provider_id": "ACoAAA_connected_user_0001",
-      "attendee_profile_url": "https://www.linkedin.com/in/angelo/",
-      "is_self": 1
+      "account_id": "dfXlh46vQYCsMbVarumWlg",
+      "id": "self_attendee_id",
+      "is_self": 1,
+      "name": "Angelo",
+      "provider_id": "ACoAAA_connected_user_0001",
+      "profile_url": "https://www.linkedin.com/in/angelo/"
     }
   ],
   "cursor": null

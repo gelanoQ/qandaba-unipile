@@ -31,13 +31,34 @@ import type {
   NormalizeResult,
   Provider,
 } from "./types.js";
-import { asString, isRecord, toParty } from "./parse.js";
+import { asString, isRecord } from "./parse.js";
 
 /** Parse one REST chat-attendee object into a MessageParty. */
 export function mapRestAttendee(value: unknown): MessageParty {
-  // REST chat-attendee objects reuse the webhook attendee field names
-  // (attendee_id / attendee_name / attendee_provider_id / attendee_profile_url).
-  return toParty(value);
+  if (!isRecord(value)) {
+    return {
+      unipileAttendeeId: null,
+      name: null,
+      providerId: null,
+      linkedinUrl: null,
+    };
+  }
+  // The REST ChatAttendee object uses UNPREFIXED field names
+  // (id / name / provider_id / profile_url), unlike the webhook's embedded
+  // attendees which use the attendee_* prefix. Read the REST names first and
+  // fall back to the prefixed ones, so this parser is correct for REST history
+  // and still tolerates a webhook-shaped attendee.
+  return {
+    unipileAttendeeId:
+      asString(value["id"]) ?? asString(value["attendee_id"]),
+    name: asString(value["name"]) ?? asString(value["attendee_name"]),
+    providerId:
+      asString(value["provider_id"]) ??
+      asString(value["attendee_provider_id"]),
+    linkedinUrl:
+      asString(value["profile_url"]) ??
+      asString(value["attendee_profile_url"]),
+  };
 }
 
 /**
@@ -68,7 +89,8 @@ export function mapRestAttendees(items: unknown[]): {
   let connectedUserProviderId: string | null = null;
   for (const raw of items) {
     if (isRecord(raw) && isSelf(raw["is_self"])) {
-      connectedUserProviderId = asString(raw["attendee_provider_id"]);
+      connectedUserProviderId =
+        asString(raw["provider_id"]) ?? asString(raw["attendee_provider_id"]);
       break;
     }
   }
@@ -143,36 +165,34 @@ export function mapRestMessage(
   const outbound = isSender(item["is_sender"]);
   const senderId = asString(item["sender_id"]);
 
-  // Resolve the sender to a full party (name + LinkedIn URL) from the chat's
-  // attendees; the message object only carries the bare sender_id. If the
-  // sender is not among the attendees (rare), fall back to a party built from
-  // the id alone so the message is still captured (it will route to the
-  // unmatched inbox for want of a profile URL).
+  // connectedUserProviderId drives the host adapter's counterparty pick for
+  // OUTBOUND messages. Prefer the is_self-derived value from the attendees
+  // (authoritative, independent of this message's sender_id). Fall back to
+  // deriving it: outbound => the sender is the connected user.
+  const connectedUserProviderId =
+    ctx.connectedUserProviderId ?? (outbound ? senderId : null);
+
+  // Attendees who are NOT the connected user (the counterparties).
+  const nonSelf = ctx.attendees.filter(
+    (a) => a.providerId && a.providerId !== connectedUserProviderId,
+  );
+
+  // Resolve the message sender to a full party (name + profile URL) from the
+  // chat's attendees; the message object carries only a bare sender_id. Prefer
+  // an exact provider-id match. If that fails on an inbound 1:1 DM, use the lone
+  // counterparty attendee, so the name and profile URL still come through even
+  // if sender_id and provider_id disagree. Last resort: an id-only party, which
+  // routes to the unmatched inbox.
   const senderParty: MessageParty =
     (senderId != null &&
       ctx.attendees.find((a) => a.providerId === senderId)) ||
+    (!outbound && nonSelf.length === 1 ? nonSelf[0]! : null) ||
     {
       unipileAttendeeId: null,
       name: null,
       providerId: senderId,
       linkedinUrl: null,
     };
-
-  // connectedUserProviderId drives the host adapter's counterparty pick for
-  // OUTBOUND messages. Prefer the value resolved from the attendees' is_self
-  // flag (authoritative, independent of this message's sender_id). Fall back to
-  // deriving it from this message: outbound => the sender is the connected
-  // user; inbound => the connected user is the single non-sender attendee.
-  const nonSenders = ctx.attendees.filter(
-    (a) => a.providerId && a.providerId !== senderId,
-  );
-  const derivedConnectedId = outbound
-    ? senderId
-    : nonSenders.length === 1
-      ? nonSenders[0]!.providerId
-      : null;
-  const connectedUserProviderId =
-    ctx.connectedUserProviderId ?? derivedConnectedId;
 
   const event: MessageEvent = {
     provider: ctx.provider,
