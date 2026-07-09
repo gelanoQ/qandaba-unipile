@@ -1,0 +1,96 @@
+import { describe, it, expect } from "vitest";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { mapUserProfile } from "../src/profile.js";
+import { UnipileClient, type FetchLike } from "../src/client.js";
+
+function fixture(name: string): unknown {
+  const url = new URL(`./fixtures/${name}`, import.meta.url);
+  return JSON.parse(readFileSync(fileURLToPath(url), "utf8"));
+}
+
+describe("mapUserProfile", () => {
+  it("extracts the public identifier and builds a canonical vanity URL", () => {
+    const p = mapUserProfile(fixture("user-profile.json"));
+    expect(p.providerId).toBe("ACoAAADWdH8B_x");
+    expect(p.publicIdentifier).toBe("philipngai");
+    // This is the value a host matches against a stored contact linkedin_url.
+    expect(p.linkedinUrl).toBe("https://www.linkedin.com/in/philipngai");
+    expect(p.name).toBe("Philip Ngai");
+  });
+
+  it("uses a whole `name` when present over first/last", () => {
+    const p = mapUserProfile({
+      provider_id: "ACoAA1",
+      public_identifier: "jdoe",
+      name: "J. Doe",
+      first_name: "John",
+      last_name: "Doe",
+    });
+    expect(p.name).toBe("J. Doe");
+  });
+
+  it("returns an all-null profile (no vanity URL) when public_identifier is absent", () => {
+    // A private/unreachable profile: enrichment must degrade to a miss, not
+    // fabricate a URL, so the host leaves the message unmatched.
+    const p = mapUserProfile({ provider_id: "ACoAA2", first_name: "No", last_name: "Slug" });
+    expect(p.publicIdentifier).toBeNull();
+    expect(p.linkedinUrl).toBeNull();
+    expect(p.providerId).toBe("ACoAA2");
+    expect(p.name).toBe("No Slug");
+  });
+
+  it("never throws on malformed input", () => {
+    expect(mapUserProfile(null)).toEqual({
+      providerId: null,
+      publicIdentifier: null,
+      linkedinUrl: null,
+      name: null,
+    });
+    expect(mapUserProfile("nonsense").publicIdentifier).toBeNull();
+    expect(mapUserProfile(42).linkedinUrl).toBeNull();
+  });
+});
+
+interface RecordedCall {
+  url: string;
+  method?: string;
+  headers?: Record<string, string>;
+}
+
+function stubFetch(body: unknown): { fetch: FetchLike; calls: RecordedCall[] } {
+  const calls: RecordedCall[] = [];
+  const fetch: FetchLike = async (url, init) => {
+    calls.push({ url, method: init?.method, headers: init?.headers });
+    return { ok: true, status: 200, text: async () => JSON.stringify(body) };
+  };
+  return { fetch, calls };
+}
+
+describe("UnipileClient.retrieveProfile", () => {
+  it("GETs /users/{identifier} with the account_id query and API key header", async () => {
+    const { fetch, calls } = stubFetch(fixture("user-profile.json"));
+    const client = new UnipileClient({ dsn: "api.local:443", apiKey: "k", fetch });
+
+    const raw = await client.retrieveProfile({
+      identifier: "ACoAAADWdH8B_x",
+      accountId: "acc1",
+    });
+
+    expect(calls).toHaveLength(1);
+    const url = new URL(calls[0]!.url);
+    expect(url.pathname).toBe("/api/v1/users/ACoAAADWdH8B_x");
+    expect(url.searchParams.get("account_id")).toBe("acc1");
+    expect(calls[0]!.method).toBe("GET");
+    expect(calls[0]!.headers?.["X-API-KEY"]).toBe("k");
+    // The raw response maps cleanly through mapUserProfile.
+    expect(mapUserProfile(raw).publicIdentifier).toBe("philipngai");
+  });
+
+  it("URL-encodes an identifier containing reserved characters", async () => {
+    const { fetch, calls } = stubFetch({});
+    const client = new UnipileClient({ dsn: "api.local:443", apiKey: "k", fetch });
+    await client.retrieveProfile({ identifier: "a b/c", accountId: "acc1" });
+    expect(new URL(calls[0]!.url).pathname).toBe("/api/v1/users/a%20b%2Fc");
+  });
+});

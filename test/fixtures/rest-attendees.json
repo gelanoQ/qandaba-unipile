@@ -14,7 +14,7 @@
         "member_urn": "urn:li:member:14054527",
         "network_distance": "DISTANCE_1"
       },
-      "profile_url": "https://www.linkedin.com/in/philipngai/"
+      "profile_url": "https://www.linkedin.com/in/ACoAAA_philip_ngai_9999"
     },
     {
       "object": "ChatAttendee",
@@ -23,7 +23,7 @@
       "is_self": 1,
       "name": "Angelo",
       "provider_id": "ACoAAA_connected_user_0001",
-      "profile_url": "https://www.linkedin.com/in/angelo/"
+      "profile_url": "https://www.linkedin.com/in/ACoAAA_connected_user_0001"
     }
   ],
   "cursor": null
