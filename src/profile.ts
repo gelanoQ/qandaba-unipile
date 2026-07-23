@@ -27,6 +27,26 @@ export interface UserProfile {
   linkedinUrl: string | null;
   /** Display name if the response carries one (best-effort). */
   name: string | null;
+  /**
+   * The LinkedIn headline, the one-liner under a member's name. Present in
+   * every real response we have seen and covered by the committed fixture.
+   */
+  headline: string | null;
+  /**
+   * Current employer, from the most recent work-experience entry.
+   *
+   * CAVEAT, read before trusting this: unlike `headline`, the field names this
+   * reads (`work_experience[].company` / `.position`) come from Unipile's
+   * documented LinkedIn profile shape, NOT from a live response anyone here has
+   * inspected. Our committed fixture did not carry them. The same caveat
+   * applied to `public_identifier` in v0.4.0, and the answer is the same: the
+   * host's live-call test is what confirms it. Treat a null here on a member
+   * who visibly has a job as a signal the field name is wrong, not as a member
+   * with no employer.
+   */
+  company: string | null;
+  /** Current job title, from the same work-experience entry as `company`. */
+  title: string | null;
 }
 
 /** Build a canonical LinkedIn vanity URL from a public identifier. */
@@ -46,6 +66,35 @@ function composeName(raw: Record<string, unknown>): string | null {
 }
 
 /**
+ * Pull the current employer and title out of a profile's work history.
+ *
+ * Takes the FIRST entry: Unipile returns work experience most-recent-first, and
+ * an entry with no end date is the current one. Preferring an open-ended entry
+ * when one exists guards the case where the ordering is not what we assume, so
+ * a member with a past role listed first does not get their old job reported as
+ * current. A profile with no work history yields nulls rather than throwing;
+ * enrichment degrading to a blank field is always better than aborting.
+ */
+function currentPosition(raw: Record<string, unknown>): {
+  company: string | null;
+  title: string | null;
+} {
+  const history = raw["work_experience"];
+  if (!Array.isArray(history) || history.length === 0) {
+    return { company: null, title: null };
+  }
+  const entries = history.filter(isRecord);
+  if (entries.length === 0) return { company: null, title: null };
+  const open = entries.find((e) => !asString(e["end"]) && !asString(e["end_date"]));
+  const entry = open ?? entries[0];
+  if (!entry) return { company: null, title: null };
+  return {
+    company: asString(entry["company"]),
+    title: asString(entry["position"]) ?? asString(entry["title"]),
+  };
+}
+
+/**
  * Map a raw Unipile "Retrieve a profile" response to a UserProfile. Missing or
  * malformed input yields an all-null profile rather than throwing, so an
  * enrichment miss degrades to "leave the message unmatched" instead of aborting
@@ -58,13 +107,20 @@ export function mapUserProfile(value: unknown): UserProfile {
       publicIdentifier: null,
       linkedinUrl: null,
       name: null,
+      headline: null,
+      company: null,
+      title: null,
     };
   }
   const publicIdentifier = asString(value["public_identifier"]);
+  const current = currentPosition(value);
   return {
     providerId: asString(value["provider_id"]),
     publicIdentifier,
     linkedinUrl: vanityUrl(publicIdentifier),
     name: composeName(value),
+    headline: asString(value["headline"]),
+    company: current.company,
+    title: current.title,
   };
 }
