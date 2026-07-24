@@ -9,7 +9,23 @@ interface RecordedCall {
   url: string;
   method?: string;
   headers?: Record<string, string>;
-  body?: string;
+  body?: string | FormData;
+}
+
+/** Assert a recorded body is JSON text and parse it. */
+function jsonBody(call: RecordedCall): unknown {
+  if (typeof call.body !== "string") {
+    throw new Error(`expected a JSON string body, got ${typeof call.body}`);
+  }
+  return JSON.parse(call.body);
+}
+
+/** Assert a recorded body is multipart form data and return it. */
+function formBody(call: RecordedCall): FormData {
+  if (!(call.body instanceof FormData)) {
+    throw new Error(`expected a FormData body, got ${typeof call.body}`);
+  }
+  return call.body;
 }
 
 /** A fetch stub that records calls and returns queued responses. */
@@ -70,7 +86,13 @@ describe("auth + send", () => {
     expect(calls[0]!.headers?.["accept"]).toBe("application/json");
   });
 
-  it("posts a reply to /chats/{chatId}/messages with the body", async () => {
+  // Unipile's two send endpoints take file fields (attachments, voice_message,
+  // video_message), so they are multipart/form-data ONLY; a JSON body is
+  // rejected and the send never leaves. An earlier version of these tests
+  // asserted application/json, which pinned our guess instead of Unipile's
+  // contract and kept the send path broken in production for every send.
+  // See qandaba-os#622.
+  it("posts a reply to /chats/{chatId}/messages as multipart, not JSON", async () => {
     const { fetch, calls } = stubFetch([{ body: { id: "m1" } }]);
     await client(fetch).sendMessage({
       chatId: "c1",
@@ -82,14 +104,30 @@ describe("auth + send", () => {
     expect(call.url).toBe(
       "https://api8.unipile.com:13443/api/v1/chats/c1/messages",
     );
-    expect(call.headers?.["content-type"]).toBe("application/json");
-    expect(JSON.parse(call.body!)).toEqual({ text: "hello", account_id: "acc1" });
+    const form = formBody(call);
+    expect(form.get("text")).toBe("hello");
+    expect(form.get("account_id")).toBe("acc1");
   });
 
-  it("omits account_id from the body when not provided", async () => {
+  // The multipart content-type carries a generated boundary, so the runtime
+  // must set the header itself. Setting it by hand produces a header with no
+  // boundary and the request fails to parse server-side.
+  it("leaves content-type unset on a multipart send so fetch adds the boundary", async () => {
     const { fetch, calls } = stubFetch([{ body: {} }]);
     await client(fetch).sendMessage({ chatId: "c1", text: "hi" });
-    expect(JSON.parse(calls[0]!.body!)).toEqual({ text: "hi" });
+    const headers = calls[0]!.headers ?? {};
+    const contentTypeKeys = Object.keys(headers).filter(
+      (k) => k.toLowerCase() === "content-type",
+    );
+    expect(contentTypeKeys).toEqual([]);
+  });
+
+  it("omits account_id from the form when not provided", async () => {
+    const { fetch, calls } = stubFetch([{ body: {} }]);
+    await client(fetch).sendMessage({ chatId: "c1", text: "hi" });
+    const form = formBody(calls[0]!);
+    expect(form.get("text")).toBe("hi");
+    expect(form.has("account_id")).toBe(false);
   });
 
   it("url-encodes the chat id in the path", async () => {
@@ -98,7 +136,11 @@ describe("auth + send", () => {
     expect(calls[0]!.url).toContain("/chats/a%2Fb%20c/messages");
   });
 
-  it("starts a new chat with attendees_ids", async () => {
+  // attendees_ids is an array, encoded as a repeated field. NOTE: unlike the
+  // reply path, this cold-start encoding is NOT confirmed by a live call,
+  // because confirming it means opening a chat with a real stranger. Treat it
+  // as the documented-but-unverified half until a safe live check exists.
+  it("starts a new chat as multipart with repeated attendees_ids", async () => {
     const { fetch, calls } = stubFetch([{ body: {} }]);
     await client(fetch).startChat({
       accountId: "acc1",
@@ -106,21 +148,29 @@ describe("auth + send", () => {
       text: "hey",
     });
     expect(calls[0]!.url).toBe("https://api8.unipile.com:13443/api/v1/chats");
-    expect(JSON.parse(calls[0]!.body!)).toEqual({
-      account_id: "acc1",
-      attendees_ids: ["p1", "p2"],
-      text: "hey",
-    });
+    const form = formBody(calls[0]!);
+    expect(form.get("account_id")).toBe("acc1");
+    expect(form.getAll("attendees_ids")).toEqual(["p1", "p2"]);
+    expect(form.get("text")).toBe("hey");
   });
 
-  it("creates a hosted auth link passing the body through", async () => {
+  it("omits text from the new-chat form when not provided", async () => {
+    const { fetch, calls } = stubFetch([{ body: {} }]);
+    await client(fetch).startChat({ accountId: "acc1", attendeesIds: ["p1"] });
+    expect(formBody(calls[0]!).has("text")).toBe(false);
+  });
+
+  // Only the two send endpoints are multipart. Everything else stays JSON, so
+  // the multipart fix must not leak across the whole client.
+  it("creates a hosted auth link as JSON, passing the body through", async () => {
     const { fetch, calls } = stubFetch([{ body: { url: "https://..." } }]);
     await client(fetch).createHostedAuthLink({ providers: ["LINKEDIN"] });
     expect(calls[0]!.method).toBe("POST");
     expect(calls[0]!.url).toBe(
       "https://api8.unipile.com:13443/api/v1/hosted/accounts/link",
     );
-    expect(JSON.parse(calls[0]!.body!)).toEqual({ providers: ["LINKEDIN"] });
+    expect(calls[0]!.headers?.["content-type"]).toBe("application/json");
+    expect(jsonBody(calls[0]!)).toEqual({ providers: ["LINKEDIN"] });
   });
 });
 
@@ -242,7 +292,7 @@ describe("webhooks", () => {
     expect(call.method).toBe("POST");
     expect(call.url).toBe("https://api8.unipile.com:13443/api/v1/webhooks");
     expect(call.headers?.["X-API-KEY"]).toBe("KEY123");
-    expect(JSON.parse(call.body!)).toEqual({
+    expect(jsonBody(call)).toEqual({
       source: "messaging",
       request_url:
         "https://os.qandaba.com/api/integrations/unipile/webhook",
@@ -259,7 +309,7 @@ describe("webhooks", () => {
       authHeaderName: "X-Custom",
       authHeaderValue: "S",
     });
-    expect(JSON.parse(calls[0]!.body!)).toEqual({
+    expect(jsonBody(calls[0]!)).toEqual({
       source: "account_status",
       request_url: "https://x/y",
       headers: [{ key: "X-Custom", value: "S" }],
