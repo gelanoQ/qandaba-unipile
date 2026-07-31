@@ -49,6 +49,8 @@ describe("mapUserProfile", () => {
       publicIdentifier: null,
       linkedinUrl: null,
       name: null,
+      email: null,
+      phone: null,
     });
     expect(mapUserProfile("nonsense").publicIdentifier).toBeNull();
     expect(mapUserProfile(42).linkedinUrl).toBeNull();
@@ -168,5 +170,97 @@ describe("mapUserProfile: headline, company and title (v0.5.0)", () => {
     expect(p.publicIdentifier).toBe("philipngai");
     expect(p.linkedinUrl).toBe("https://www.linkedin.com/in/philipngai");
     expect(p.name).toBe("Philip Ngai");
+  });
+});
+
+describe("mapUserProfile: contact_info email and phone (v0.6.0)", () => {
+  // Shape copied from a live response, not invented: LinkedIn returns
+  // contact_info on the DEFAULT profile call for first-degree connections,
+  // and v0.5.0 dropped it on the floor.
+  const withContact = {
+    public_identifier: "ryan-glenn-53559b39",
+    first_name: "Ryan",
+    last_name: "Glenn",
+    contact_info: {
+      emails: ["rtglenn19@gmail.com"],
+      phones: ["404-406-7313"],
+    },
+  };
+
+  it("extracts the first email and the first phone", () => {
+    const p = mapUserProfile(withContact);
+    expect(p.email).toBe("rtglenn19@gmail.com");
+    expect(p.phone).toBe("404-406-7313");
+  });
+
+  it("maps phones without emails, the shape a partial profile actually returns", () => {
+    const p = mapUserProfile({
+      public_identifier: "sanjaypandeyqss",
+      contact_info: { adresses: ["Minneapolis "], phones: ["+1 (612) 201-1169"] },
+    });
+    expect(p.email).toBeNull();
+    expect(p.phone).toBe("+1 (612) 201-1169");
+  });
+
+  it("yields nulls when contact_info is absent, which is the 2nd/3rd degree case", () => {
+    const p = mapUserProfile({ public_identifier: "kstreeter", headline: "Navy Veteran" });
+    expect(p.email).toBeNull();
+    expect(p.phone).toBeNull();
+  });
+
+  it("survives every malformed contact_info shape rather than throwing", () => {
+    for (const contact_info of [
+      null,
+      "nope",
+      [],
+      { emails: [], phones: [] },
+      { emails: "a@b.c", phones: 5 },
+      { emails: [null], phones: [{}] },
+    ]) {
+      const p = mapUserProfile({ public_identifier: "x", contact_info });
+      expect(p.email).toBeNull();
+      expect(p.phone).toBeNull();
+    }
+  });
+
+  it("treats a whitespace-only entry as absent, not as a value", () => {
+    // A blank string reaching a form is worse than a null: it looks prefilled,
+    // suppresses the "only fill what is blank" guard downstream, and saves an
+    // empty contact detail nobody typed.
+    const p = mapUserProfile({
+      public_identifier: "x",
+      contact_info: { emails: ["   "], phones: ["\t\n"] },
+    });
+    expect(p.email).toBeNull();
+    expect(p.phone).toBeNull();
+  });
+
+  it("trims a padded value, because the host keys contact identity off it", () => {
+    // Live LinkedIn data really is padded ("Minneapolis ", "QSS Technosoft
+    // Inc. "). A padded email is not cosmetic: " a@b.com " and "a@b.com" fold
+    // to different identity keys downstream and become two contacts that never
+    // match each other.
+    const p = mapUserProfile({
+      public_identifier: "x",
+      contact_info: { emails: [" padded@example.com "], phones: ["\t555-0100 "] },
+    });
+    expect(p.email).toBe("padded@example.com");
+    expect(p.phone).toBe("555-0100");
+  });
+
+  it("skips a blank leading entry and takes the first real one", () => {
+    const p = mapUserProfile({
+      public_identifier: "x",
+      contact_info: { emails: ["  ", "real@example.com"], phones: [null, "555-0100"] },
+    });
+    expect(p.email).toBe("real@example.com");
+    expect(p.phone).toBe("555-0100");
+  });
+
+  it("leaves the v0.5.0 fields untouched, so existing consumers are unaffected", () => {
+    const p = mapUserProfile(withContact);
+    expect(p.publicIdentifier).toBe("ryan-glenn-53559b39");
+    expect(p.linkedinUrl).toBe("https://www.linkedin.com/in/ryan-glenn-53559b39");
+    expect(p.name).toBe("Ryan Glenn");
   });
 });

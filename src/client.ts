@@ -96,6 +96,35 @@ export interface RetrieveProfileInput {
   identifier: string;
   /** The connected account whose session performs the lookup. */
   accountId: string;
+  /**
+   * Extra LinkedIn profile sections to request, e.g. `["experience"]`.
+   *
+   * READ THIS BEFORE ASSUMING A FIELD IS MISSING. Unipile returns work history
+   * ONLY when it is asked for. Without this, the response carries no
+   * `work_experience` key at all, and mapUserProfile's company/title come back
+   * null for every profile on earth. That was a real production bug: the
+   * Create-lead prefill in qandaba-os shipped, ran for weeks, and filled in
+   * nothing, because the mapper read a field the request never asked to have
+   * populated.
+   *
+   * Deliberately opt-in rather than always-on. Callers that need only the
+   * vanity URL (webhook resolution, the history backfill) run in bulk and must
+   * not pay for sections they never read. Omitted or empty means the request
+   * is byte-identical to one that never knew about this option, which is what
+   * keeps existing consumers unaffected.
+   *
+   * Each entry is sent as its own `linkedin_sections` param, because Unipile
+   * validates one section name per value. Do not pre-join them into a comma
+   * string: the API reads that as a single unknown section name and 400s.
+   *
+   * Values are an enum, quoted from a live 400 body on 2026-07-31: `*`,
+   * `*_preview`, about, experience, education, languages, skills,
+   * certifications, volunteering_experience, projects,
+   * recommendations_received, recommendations_given, recruiting_activity, and
+   * a `_preview` variant of each section. Anything outside it fails the whole
+   * request, so an unrecognized value is a 400, not a silently ignored hint.
+   */
+  sections?: string[];
 }
 
 /**
@@ -138,6 +167,12 @@ function normalizeBaseUrl(dsn: string): string {
   return `${withScheme}/api/v1`;
 }
 
+/**
+ * Query values buildUrl understands. An array means "repeat this key once per
+ * element", which is how Unipile takes multi-valued params; see buildUrl.
+ */
+type QueryParams = Record<string, string | number | string[] | undefined>;
+
 export class UnipileClient {
   private readonly baseUrl: string;
   private readonly apiKey: string;
@@ -160,14 +195,21 @@ export class UnipileClient {
     }
   }
 
-  private buildUrl(
-    path: string,
-    query?: Record<string, string | number | undefined>,
-  ): string {
+  private buildUrl(path: string, query?: QueryParams): string {
     const url = new URL(`${this.baseUrl}${path}`);
     if (query) {
       for (const [key, value] of Object.entries(query)) {
-        if (value !== undefined) url.searchParams.set(key, String(value));
+        if (value === undefined) continue;
+        // An array becomes REPEATED params (?k=a&k=b), never one joined value.
+        // Unipile validates linkedin_sections against a per-value enum, so a
+        // comma-joined "experience,education" is read as a single section
+        // name, misses the enum, and 400s the whole request. Verified live
+        // 2026-07-31 against api49: repeated params return both sections.
+        if (Array.isArray(value)) {
+          for (const item of value) url.searchParams.append(key, String(item));
+          continue;
+        }
+        url.searchParams.set(key, String(value));
       }
     }
     return url.toString();
@@ -177,7 +219,7 @@ export class UnipileClient {
     method: string,
     path: string,
     opts?: {
-      query?: Record<string, string | number | undefined>;
+      query?: QueryParams;
       body?: unknown;
     },
   ): Promise<T> {
@@ -277,7 +319,7 @@ export class UnipileClient {
    */
   private async listRequest(
     path: string,
-    query: Record<string, string | number | undefined>,
+    query: QueryParams,
   ): Promise<UnipileList<unknown>> {
     const raw = await this.request<Partial<UnipileList<unknown>>>("GET", path, {
       query,
@@ -332,12 +374,29 @@ export class UnipileClient {
    * response object; map it with mapUserProfile(). Endpoint:
    * GET /users/{identifier}?account_id=... The account_id query is required:
    * the lookup runs through that connected account's LinkedIn session.
+   *
+   * Pass `sections: ["experience"]` to get work history back. Without it the
+   * response has no work-experience key and mapUserProfile reports a null
+   * company and title for everyone. See RetrieveProfileInput.sections.
    */
   async retrieveProfile(input: RetrieveProfileInput): Promise<unknown> {
+    // Each surviving entry becomes its own linkedin_sections param; Unipile
+    // validates them one value at a time.
+    //
+    // Blank and whitespace-only entries are dropped rather than sent: an empty
+    // linkedin_sections= fails the section-name enum and 400s the entire
+    // lookup (verified live), so one stray "" in a caller's array would take
+    // down a profile fetch that has nothing else wrong with it. An array that
+    // is empty, or that holds nothing but blanks, is treated as "no sections"
+    // and produces a URL identical to a caller that never passed the option.
+    const cleaned = (input.sections ?? [])
+      .map((section) => section.trim())
+      .filter((section) => section.length > 0);
+    const sections = cleaned.length > 0 ? cleaned : undefined;
     return this.request(
       "GET",
       `/users/${encodeURIComponent(input.identifier)}`,
-      { query: { account_id: input.accountId } },
+      { query: { account_id: input.accountId, linkedin_sections: sections } },
     );
   }
 
