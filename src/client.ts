@@ -96,6 +96,27 @@ export interface RetrieveProfileInput {
   identifier: string;
   /** The connected account whose session performs the lookup. */
   accountId: string;
+  /**
+   * Extra LinkedIn profile sections to request, e.g. `["experience"]`.
+   *
+   * READ THIS BEFORE ASSUMING A FIELD IS MISSING. Unipile returns work history
+   * ONLY when it is asked for. Without this, the response carries no
+   * `work_experience` key at all, and mapUserProfile's company/title come back
+   * null for every profile on earth. That was a real production bug: the
+   * Create-lead prefill in qandaba-os shipped, ran for weeks, and filled in
+   * nothing, because the mapper read a field the request never asked to have
+   * populated.
+   *
+   * Deliberately opt-in rather than always-on. Callers that need only the
+   * vanity URL (webhook resolution, the history backfill) run in bulk and must
+   * not pay for sections they never read. Omitted or empty means the request
+   * is byte-identical to one that never knew about this option, which is what
+   * keeps existing consumers unaffected.
+   *
+   * Known values: experience, education, certifications, languages, skills,
+   * or `*` for all of them.
+   */
+  sections?: string[];
 }
 
 /**
@@ -332,12 +353,22 @@ export class UnipileClient {
    * response object; map it with mapUserProfile(). Endpoint:
    * GET /users/{identifier}?account_id=... The account_id query is required:
    * the lookup runs through that connected account's LinkedIn session.
+   *
+   * Pass `sections: ["experience"]` to get work history back. Without it the
+   * response has no work-experience key and mapUserProfile reports a null
+   * company and title for everyone. See RetrieveProfileInput.sections.
    */
   async retrieveProfile(input: RetrieveProfileInput): Promise<unknown> {
+    // An empty list is treated as "no sections", not as "a section named
+    // nothing": buildUrl skips undefined, so the URL stays identical to the
+    // one a caller that never passed sections would produce.
+    const sections = input.sections?.length
+      ? input.sections.join(",")
+      : undefined;
     return this.request(
       "GET",
       `/users/${encodeURIComponent(input.identifier)}`,
-      { query: { account_id: input.accountId } },
+      { query: { account_id: input.accountId, linkedin_sections: sections } },
     );
   }
 

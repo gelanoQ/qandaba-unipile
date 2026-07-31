@@ -99,6 +99,30 @@ for await (const message of client.iterateMessages({ chatId })) {
 `createHostedAuthLink(body)` wraps `POST /hosted/accounts/link` for the
 connect flow; its exact body params are pinned by the host in S2.
 
+#### retrieveProfile and the sections trap
+
+```ts
+// v0.5.0 and any caller that omits `sections`:
+const raw = await client.retrieveProfile({ identifier, accountId });
+mapUserProfile(raw).company; // ALWAYS null, for every profile on earth
+
+// What you actually want when you need employer and job title:
+const raw = await client.retrieveProfile({
+  identifier, accountId, sections: ["experience"],
+});
+mapUserProfile(raw).company; // the member's current employer
+```
+
+Unipile returns work history only when asked for it. Without `sections` the
+response carries no work-experience key at all, so `company` and `title` come
+back null for everyone and nothing reports an error. Ask for the section when
+you need those two fields, and leave it off when you do not: bulk callers that
+want only the vanity URL should not pay for data they never read.
+
+`email` and `phone` come from `contact_info` on the default call, no section
+needed, and are populated only for members who share them (in practice,
+first-degree connections). Null is the normal case there, not a bad request.
+
 ### History backfill (REST)
 
 Live capture normalizes the webhook payload. Backfill instead reads history

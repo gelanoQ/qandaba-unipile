@@ -323,3 +323,50 @@ describe("errors", () => {
     }
   });
 });
+
+describe("UnipileClient.retrieveProfile: linkedin_sections (v0.6.0)", () => {
+  it("sends NO linkedin_sections when none are asked for", async () => {
+    const { fetch, calls } = stubFetch([{ body: {} }]);
+    await client(fetch).retrieveProfile({ identifier: "ACoAA1", accountId: "acc1" });
+    // Byte-identical to the v0.5.0 request. Every existing consumer
+    // (bcs-lead-engine, the webhook, the history backfill) must keep the cheap
+    // call it has today rather than silently opting into extra sections.
+    expect(calls[0]!.url).toBe(
+      "https://api8.unipile.com:13443/api/v1/users/ACoAA1?account_id=acc1",
+    );
+  });
+
+  it("emits linkedin_sections when a section is requested", async () => {
+    const { fetch, calls } = stubFetch([{ body: {} }]);
+    await client(fetch).retrieveProfile({
+      identifier: "ACoAA1",
+      accountId: "acc1",
+      sections: ["experience"],
+    });
+    expect(new URL(calls[0]!.url).searchParams.get("linkedin_sections")).toBe(
+      "experience",
+    );
+  });
+
+  it("comma-joins several sections", async () => {
+    const { fetch, calls } = stubFetch([{ body: {} }]);
+    await client(fetch).retrieveProfile({
+      identifier: "ACoAA1",
+      accountId: "acc1",
+      sections: ["experience", "education"],
+    });
+    expect(new URL(calls[0]!.url).searchParams.get("linkedin_sections")).toBe(
+      "experience,education",
+    );
+  });
+
+  it("treats an empty section list as no sections at all", async () => {
+    const { fetch, calls } = stubFetch([{ body: {} }]);
+    await client(fetch).retrieveProfile({
+      identifier: "ACoAA1",
+      accountId: "acc1",
+      sections: [],
+    });
+    expect(new URL(calls[0]!.url).searchParams.has("linkedin_sections")).toBe(false);
+  });
+});

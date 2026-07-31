@@ -35,18 +35,69 @@ export interface UserProfile {
   /**
    * Current employer, from the most recent work-experience entry.
    *
-   * CAVEAT, read before trusting this: unlike `headline`, the field names this
-   * reads (`work_experience[].company` / `.position`) come from Unipile's
-   * documented LinkedIn profile shape, NOT from a live response anyone here has
-   * inspected. Our committed fixture did not carry them. The same caveat
-   * applied to `public_identifier` in v0.4.0, and the answer is the same: the
-   * host's live-call test is what confirms it. Treat a null here on a member
-   * who visibly has a job as a signal the field name is wrong, not as a member
-   * with no employer.
+   * REQUIRES `sections: ["experience"]` ON THE REQUEST. Confirmed against live
+   * Unipile on 2026-07-31: the field names below are correct, but a default
+   * profile call returns no work-experience key at all, so this is null for
+   * every profile unless the caller asked for the section.
+   *
+   * A null here on a member who visibly has a job means the request omitted
+   * the section, not that the member has no employer.
+   *
+   * (The v0.5.0 comment guessed the field names were wrong. They were not, the
+   * request was incomplete. Both produce an identical null, which is exactly
+   * why the bug survived review of its own diff.)
    */
   company: string | null;
   /** Current job title, from the same work-experience entry as `company`. */
   title: string | null;
+  /**
+   * Primary email from the profile's contact info, or null.
+   *
+   * Returned on the DEFAULT call, no section required, but only for members
+   * who share it. In a live sample of 11 real profiles, 8 carried an email and
+   * every one of those was a first-degree connection. Absence is normal and is
+   * never evidence that the request was built wrong.
+   */
+  email: string | null;
+  /** Primary phone from the same contact info, or null. Same caveats. */
+  phone: string | null;
+}
+
+/**
+ * First usable string in what should be an array of them.
+ *
+ * Every layer is defensive on purpose: `contact_info` is absent on most
+ * profiles, and when present its arrays are populated by whatever the member
+ * typed. A non-array, an empty array, a null element or a blank string all mean
+ * the same thing to a caller (nothing to prefill), so they all collapse to null
+ * rather than reaching a form as `undefined` or `""`.
+ */
+function firstString(value: unknown): string | null {
+  if (!Array.isArray(value)) return null;
+  for (const entry of value) {
+    const str = asString(entry);
+    if (str && str.trim()) return str;
+  }
+  return null;
+}
+
+/**
+ * Pull the primary email and phone out of a profile's contact info.
+ *
+ * LinkedIn returns this on the default profile call for members who share it,
+ * so unlike work experience it costs nothing extra. v0.5.0 read the response
+ * and discarded this object entirely.
+ */
+function contactInfo(raw: Record<string, unknown>): {
+  email: string | null;
+  phone: string | null;
+} {
+  const info = raw["contact_info"];
+  if (!isRecord(info)) return { email: null, phone: null };
+  return {
+    email: firstString(info["emails"]),
+    phone: firstString(info["phones"]),
+  };
 }
 
 /** Build a canonical LinkedIn vanity URL from a public identifier. */
@@ -110,10 +161,13 @@ export function mapUserProfile(value: unknown): UserProfile {
       headline: null,
       company: null,
       title: null,
+      email: null,
+      phone: null,
     };
   }
   const publicIdentifier = asString(value["public_identifier"]);
   const current = currentPosition(value);
+  const contact = contactInfo(value);
   return {
     providerId: asString(value["provider_id"]),
     publicIdentifier,
@@ -122,5 +176,7 @@ export function mapUserProfile(value: unknown): UserProfile {
     headline: asString(value["headline"]),
     company: current.company,
     title: current.title,
+    email: contact.email,
+    phone: contact.phone,
   };
 }
