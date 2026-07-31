@@ -71,12 +71,17 @@ export interface UserProfile {
  * typed. A non-array, an empty array, a null element or a blank string all mean
  * the same thing to a caller (nothing to prefill), so they all collapse to null
  * rather than reaching a form as `undefined` or `""`.
+ *
+ * The value is returned TRIMMED. Live LinkedIn data really does carry padding
+ * ("Minneapolis ", "QSS Technosoft Inc. "), and a padded email is not cosmetic
+ * downstream: the host keys contact identity off the email, so " a@b.com " and
+ * "a@b.com" resolve to two contacts that never match each other.
  */
 function firstString(value: unknown): string | null {
   if (!Array.isArray(value)) return null;
   for (const entry of value) {
-    const str = asString(entry);
-    if (str && str.trim()) return str;
+    const str = asString(entry)?.trim();
+    if (str) return str;
   }
   return null;
 }

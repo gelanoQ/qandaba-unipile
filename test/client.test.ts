@@ -348,16 +348,27 @@ describe("UnipileClient.retrieveProfile: linkedin_sections (v0.6.0)", () => {
     );
   });
 
-  it("comma-joins several sections", async () => {
+  it("REPEATS the param for several sections, never comma-joins them", async () => {
     const { fetch, calls } = stubFetch([{ body: {} }]);
     await client(fetch).retrieveProfile({
       identifier: "ACoAA1",
       accountId: "acc1",
       sections: ["experience", "education"],
     });
-    expect(new URL(calls[0]!.url).searchParams.get("linkedin_sections")).toBe(
-      "experience,education",
+    // Verified live 2026-07-31: ?linkedin_sections=experience&linkedin_sections=
+    // education returns both sections, while the comma-joined form 400s with
+    // "A section name" against a per-value enum. Asserting the raw query string
+    // and not just getAll() is deliberate: getAll() cannot tell the two apart
+    // if the joined form ever came back.
+    const url = new URL(calls[0]!.url);
+    expect(url.searchParams.getAll("linkedin_sections")).toEqual([
+      "experience",
+      "education",
+    ]);
+    expect(url.search).toContain(
+      "linkedin_sections=experience&linkedin_sections=education",
     );
+    expect(url.search).not.toContain("%2C");
   });
 
   it("treats an empty section list as no sections at all", async () => {
@@ -368,5 +379,43 @@ describe("UnipileClient.retrieveProfile: linkedin_sections (v0.6.0)", () => {
       sections: [],
     });
     expect(new URL(calls[0]!.url).searchParams.has("linkedin_sections")).toBe(false);
+  });
+
+  it("drops blank entries rather than sending a section name Unipile rejects", async () => {
+    // An empty linkedin_sections= is a 400 on the WHOLE lookup, not an ignored
+    // param, so one stray "" in a caller's array must not cost them the profile.
+    const { fetch, calls } = stubFetch([{ body: {} }]);
+    await client(fetch).retrieveProfile({
+      identifier: "ACoAA1",
+      accountId: "acc1",
+      sections: ["", "  ", "experience"],
+    });
+    expect(new URL(calls[0]!.url).searchParams.getAll("linkedin_sections")).toEqual([
+      "experience",
+    ]);
+  });
+
+  it("trims a padded section name instead of sending one that 400s", async () => {
+    const { fetch, calls } = stubFetch([{ body: {} }]);
+    await client(fetch).retrieveProfile({
+      identifier: "ACoAA1",
+      accountId: "acc1",
+      sections: [" experience "],
+    });
+    expect(new URL(calls[0]!.url).searchParams.getAll("linkedin_sections")).toEqual([
+      "experience",
+    ]);
+  });
+
+  it("sends nothing when every entry is blank, keeping the v0.5.0 URL", async () => {
+    const { fetch, calls } = stubFetch([{ body: {} }]);
+    await client(fetch).retrieveProfile({
+      identifier: "ACoAA1",
+      accountId: "acc1",
+      sections: ["", "   "],
+    });
+    expect(calls[0]!.url).toBe(
+      "https://api8.unipile.com:13443/api/v1/users/ACoAA1?account_id=acc1",
+    );
   });
 });

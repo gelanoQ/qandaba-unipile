@@ -119,6 +119,17 @@ back null for everyone and nothing reports an error. Ask for the section when
 you need those two fields, and leave it off when you do not: bulk callers that
 want only the vanity URL should not pay for data they never read.
 
+Each entry goes on the wire as its own `linkedin_sections` param
+(`?linkedin_sections=experience&linkedin_sections=education`). Unipile validates
+one section name per value against an enum, so a comma-joined
+`experience,education` is read as a single unknown name and 400s the entire
+lookup. Do not pre-join them, and do not pass a blank string: an empty
+`linkedin_sections=` fails the same enum. The client trims and drops blanks for
+you, so a stray `""` costs nothing. Valid values are `*`, `*_preview`, `about`,
+`experience`, `education`, `languages`, `skills`, `certifications`,
+`volunteering_experience`, `projects`, `recommendations_received`,
+`recommendations_given`, `recruiting_activity`, and a `_preview` variant of each.
+
 `email` and `phone` come from `contact_info` on the default call, no section
 needed, and are populated only for members who share them (in practice,
 first-degree connections). Null is the normal case there, not a bad request.

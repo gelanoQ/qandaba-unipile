@@ -235,6 +235,19 @@ describe("mapUserProfile: contact_info email and phone (v0.6.0)", () => {
     expect(p.phone).toBeNull();
   });
 
+  it("trims a padded value, because the host keys contact identity off it", () => {
+    // Live LinkedIn data really is padded ("Minneapolis ", "QSS Technosoft
+    // Inc. "). A padded email is not cosmetic: " a@b.com " and "a@b.com" fold
+    // to different identity keys downstream and become two contacts that never
+    // match each other.
+    const p = mapUserProfile({
+      public_identifier: "x",
+      contact_info: { emails: [" padded@example.com "], phones: ["\t555-0100 "] },
+    });
+    expect(p.email).toBe("padded@example.com");
+    expect(p.phone).toBe("555-0100");
+  });
+
   it("skips a blank leading entry and takes the first real one", () => {
     const p = mapUserProfile({
       public_identifier: "x",
